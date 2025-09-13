@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/client"
-import { createClient as createServerClient } from "@/lib/supabase/server"
 import type { TelegramGift, CaseReward, OnlineStats, RecentWin } from "@/types/telegram-gifts"
 
 export class TelegramGiftsService {
@@ -222,45 +221,6 @@ export class TelegramGiftsService {
           )
       }
     }
-  }
-}
-
-// Server-side service for authenticated operations
-export class TelegramGiftsServerService {
-  private supabase
-
-  constructor() {
-    this.supabase = createServerClient()
-  }
-
-  async getUserProfile(userId: string) {
-    const { data, error } = await this.supabase.from("users").select("*").eq("id", userId).single()
-
-    if (error && error.code === "PGRST116") {
-      // User doesn't exist, create profile
-      const { data: newUser } = await this.supabase
-        .from("users")
-        .insert({
-          id: userId,
-          ton_balance: 0,
-        })
-        .select()
-        .single()
-
-      return newUser
-    }
-
-    if (error) throw error
-    return data
-  }
-
-  async updateUserBalance(userId: string, amount: number) {
-    const { error } = await this.supabase.rpc("update_user_balance", {
-      user_id: userId,
-      amount_change: amount,
-    })
-
-    if (error) throw error
   }
 }
 
