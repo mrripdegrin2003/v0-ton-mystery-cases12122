@@ -8,5 +8,10 @@ interface TonConnectProviderProps {
 }
 
 export function TonConnectProvider({ children }: TonConnectProviderProps) {
-  return <TonConnectUIProvider manifestUrl="/tonconnect-manifest.json">{children}</TonConnectUIProvider>
+  const manifestUrl =
+    process.env.NODE_ENV === "production"
+      ? "https://ton-mystery-cases.vercel.app/tonconnect-manifest.json"
+      : "/tonconnect-manifest.json"
+
+  return <TonConnectUIProvider manifestUrl={manifestUrl}>{children}</TonConnectUIProvider>
 }

@@ -68,12 +68,11 @@ export function WalletOperations({ userId, balance, onBalanceUpdate }: WalletOpe
       setIsDepositing(true)
       telegramWebApp.hapticFeedback("light")
 
-      // Send transaction to deposit address
       const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 300,
         messages: [
           {
-            address: "UQAjU_dKuBVzeAQOfqNZ5kqUGsuPBXY9bjW1Cs4ZT_eTANGy", // Your deposit address
+            address: "UQAjU_dKuBVzeAQOfqNZ5kqUGsuPBXY9bjW1Cs4ZT_eTANGy", // Main contract address
             amount: (amount * 1e9).toString(), // Convert to nanotons
             payload: btoa(`deposit_${userId}`), // Include user ID in comment
           },
