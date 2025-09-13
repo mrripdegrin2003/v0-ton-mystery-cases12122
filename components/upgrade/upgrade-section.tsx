@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowRight, Plus, Minus, TrendingUp } from "lucide-react"
 import type { TelegramGift } from "@/types/telegram-gifts"
-import { useTelegramHaptics } from "@/hooks/use-telegram-haptics"
+import type { TelegramUser } from "@/types"
 
 interface InventoryItem {
   id: string
@@ -16,8 +16,15 @@ interface InventoryItem {
   telegram_gifts: TelegramGift
 }
 
-export function UpgradeSection() {
-  const [inventory, setInventory] = useState<InventoryItem[]>([])
+interface UpgradeSectionProps {
+  user: TelegramUser | null
+  inventory: any[]
+  balance: number
+  onBalanceUpdate: (newBalance: number) => void
+  onInventoryUpdate: (newInventory: any[]) => void
+}
+
+export function UpgradeSection({ user, inventory, balance, onBalanceUpdate, onInventoryUpdate }: UpgradeSectionProps) {
   const [selectedItems, setSelectedItems] = useState<Array<{ id: string; quantity: number }>>([])
   const [upgradeTargets, setUpgradeTargets] = useState<TelegramGift[]>([])
   const [selectedTarget, setSelectedTarget] = useState<TelegramGift | null>(null)
@@ -28,11 +35,6 @@ export function UpgradeSection() {
   } | null>(null)
 
   const upgradeService = new UpgradeSystemService()
-  const { triggerImpact, triggerNotification } = useTelegramHaptics()
-
-  useEffect(() => {
-    loadInventory()
-  }, [])
 
   useEffect(() => {
     if (selectedItems.length > 0) {
@@ -43,16 +45,6 @@ export function UpgradeSection() {
       setSelectedTarget(null)
     }
   }, [selectedItems, inventory])
-
-  const loadInventory = async () => {
-    try {
-      // For demo, using a mock user ID
-      const data = await upgradeService.getUserInventory("demo-user")
-      setInventory(data)
-    } catch (error) {
-      console.error("Failed to load inventory:", error)
-    }
-  }
 
   const loadUpgradeTargets = async (inputValue: number) => {
     try {
@@ -65,18 +57,20 @@ export function UpgradeSection() {
 
   const calculateTotalValue = (): number => {
     return selectedItems.reduce((sum, selected) => {
-      const item = inventory.find((inv) => inv.gift_id === selected.id)
-      return sum + (item?.telegram_gifts.price_ton || 0) * selected.quantity
+      const item = inventory.find((inv) => inv.gift?.id === selected.id)
+      return sum + (item?.gift?.price_ton || 0) * selected.quantity
     }, 0)
   }
 
   const handleItemSelect = (giftId: string, change: number) => {
-    triggerImpact("light")
+    if (window.Telegram?.WebApp?.HapticFeedback) {
+      window.Telegram.WebApp.HapticFeedback.impactOccurred("light")
+    }
 
     setSelectedItems((prev) => {
       const existing = prev.find((item) => item.id === giftId)
-      const inventoryItem = inventory.find((inv) => inv.gift_id === giftId)
-      const maxQuantity = inventoryItem?.quantity || 0
+      const inventoryItem = inventory.find((inv) => inv.gift?.id === giftId)
+      const maxQuantity = inventoryItem?.quantity || 1
 
       if (existing) {
         const newQuantity = Math.max(0, Math.min(maxQuantity, existing.quantity + change))
@@ -95,22 +89,42 @@ export function UpgradeSection() {
     if (!selectedTarget || selectedItems.length === 0) return
 
     setIsUpgrading(true)
-    triggerImpact("heavy")
+
+    if (window.Telegram?.WebApp?.HapticFeedback) {
+      window.Telegram.WebApp.HapticFeedback.impactOccurred("heavy")
+    }
 
     try {
-      const contract = await upgradeService.createUpgradeContract("demo-user", selectedItems, selectedTarget.id)
+      const contract = await upgradeService.createUpgradeContract(
+        user?.id.toString() || "demo-user",
+        selectedItems,
+        selectedTarget.id,
+      )
       const result = await upgradeService.executeUpgrade(contract.id)
 
       setUpgradeResult(result)
-      triggerNotification(result.success ? "success" : "error")
 
-      // Reload inventory
-      await loadInventory()
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.notificationOccurred(result.success ? "success" : "error")
+      }
+
+      if (result.success && result.resultGift) {
+        const newItem = {
+          id: Date.now(),
+          gift: result.resultGift,
+          opened_at: new Date().toISOString(),
+          case_name: "Upgrade",
+        }
+        onInventoryUpdate([...inventory, newItem])
+      }
+
       setSelectedItems([])
       setSelectedTarget(null)
     } catch (error) {
       console.error("Upgrade failed:", error)
-      triggerNotification("error")
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.notificationOccurred("error")
+      }
     } finally {
       setIsUpgrading(false)
     }
@@ -186,7 +200,7 @@ export function UpgradeSection() {
       {/* Header */}
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold text-white">Upgrade</h1>
-        <p className="text-gray-400">Улучшай свои предметы как в CS:GO</p>
+        <p className="text-gray-400">Улучшай свои НФТ подарки как в CS:GO</p>
       </div>
 
       {/* Selected Items */}
@@ -197,26 +211,26 @@ export function UpgradeSection() {
         ) : (
           <div className="space-y-3">
             {selectedItems.map((selected) => {
-              const item = inventory.find((inv) => inv.gift_id === selected.id)
+              const item = inventory.find((inv) => inv.gift?.id === selected.id)
               if (!item) return null
 
               return (
                 <div key={selected.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
                   <img
                     src={
-                      item.telegram_gifts.image ||
-                      `/placeholder.svg?height=48&width=48&query=${item.telegram_gifts.name || "/placeholder.svg"}`
+                      item.gift.image ||
+                      `/placeholder.svg?height=48&width=48&query=${item.gift.name || "/placeholder.svg"}`
                     }
-                    alt={item.telegram_gifts.name}
+                    alt={item.gift.name}
                     className="w-12 h-12 rounded-lg"
                   />
                   <div className="flex-1">
-                    <p className="text-white font-medium">{item.telegram_gifts.name}</p>
+                    <p className="text-white font-medium">{item.gift.name}</p>
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
                         <span className="text-white text-xs font-bold">T</span>
                       </div>
-                      <span className="text-blue-400 text-sm">{item.telegram_gifts.price_ton} TON</span>
+                      <span className="text-blue-400 text-sm">{item.gift.price_ton} TON</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -234,7 +248,7 @@ export function UpgradeSection() {
                       variant="outline"
                       onClick={() => handleItemSelect(selected.id, 1)}
                       className="w-8 h-8 p-0 border-white/20"
-                      disabled={selected.quantity >= item.quantity}
+                      disabled={selected.quantity >= (item.quantity || 1)}
                     >
                       <Plus className="w-4 h-4" />
                     </Button>
@@ -280,7 +294,9 @@ export function UpgradeSection() {
                   key={target.id}
                   onClick={() => {
                     setSelectedTarget(target)
-                    triggerImpact("medium")
+                    if (window.Telegram?.WebApp?.HapticFeedback) {
+                      window.Telegram.WebApp.HapticFeedback.impactOccurred("medium")
+                    }
                   }}
                   className={`p-4 rounded-xl border transition-all ${
                     isSelected
@@ -348,23 +364,23 @@ export function UpgradeSection() {
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {inventory.map((item) => {
-              const selected = selectedItems.find((s) => s.id === item.gift_id)
+              const selected = selectedItems.find((s) => s.id === item.gift?.id)
               const selectedQuantity = selected?.quantity || 0
 
               return (
                 <button
                   key={item.id}
-                  onClick={() => handleItemSelect(item.gift_id, 1)}
-                  disabled={selectedQuantity >= item.quantity}
+                  onClick={() => handleItemSelect(item.gift?.id, 1)}
+                  disabled={selectedQuantity >= (item.quantity || 1)}
                   className="p-3 rounded-xl border border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="relative">
                     <img
                       src={
-                        item.telegram_gifts.image ||
-                        `/placeholder.svg?height=48&width=48&query=${item.telegram_gifts.name || "/placeholder.svg"}`
+                        item.gift?.image ||
+                        `/placeholder.svg?height=48&width=48&query=${item.gift?.name || "/placeholder.svg"}`
                       }
-                      alt={item.telegram_gifts.name}
+                      alt={item.gift?.name}
                       className="w-12 h-12 mx-auto rounded-lg mb-2"
                     />
                     {selectedQuantity > 0 && (
@@ -373,15 +389,15 @@ export function UpgradeSection() {
                       </div>
                     )}
                   </div>
-                  <p className="text-white text-xs font-medium mb-1 truncate">{item.telegram_gifts.name}</p>
+                  <p className="text-white text-xs font-medium mb-1 truncate">{item.gift?.name}</p>
                   <div className="flex items-center justify-center gap-1 mb-1">
                     <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
                       <span className="text-white text-xs font-bold">T</span>
                     </div>
-                    <span className="text-blue-400 text-xs">{item.telegram_gifts.price_ton}</span>
+                    <span className="text-blue-400 text-xs">{item.gift?.price_ton}</span>
                   </div>
                   <Badge variant="secondary" className="text-xs">
-                    x{item.quantity}
+                    x{item.quantity || 1}
                   </Badge>
                 </button>
               )

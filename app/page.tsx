@@ -2,33 +2,21 @@
 
 import { useState, useEffect } from "react"
 import { TonConnectProvider } from "@/components/wallet/ton-connect-provider"
-import { WalletButton } from "@/components/wallet/wallet-button"
-import { WalletOperations } from "@/components/wallet/wallet-operations"
-import { CasesGrid } from "@/components/cases/cases-grid"
-import { UserProfile } from "@/components/profile/user-profile"
-import { InventoryGrid } from "@/components/inventory/inventory-grid"
-import { TransactionHistory } from "@/components/profile/transaction-history"
-import { ReferralSystem } from "@/components/referral/referral-system"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CasesSection } from "@/components/cases/cases-section"
+import { UpgradeSection } from "@/components/upgrade/upgrade-section"
+import { ProfileSection } from "@/components/profile/profile-section"
+import { BottomNavigation } from "@/components/layout/bottom-navigation"
+import { OnlineStats } from "@/components/stats/online-stats"
 import { telegramWebApp } from "@/lib/telegram"
-import { apiClient } from "@/lib/api"
-import type { TelegramUser, UserState, InventoryItem } from "@/types"
-import { Coins, Package, Users, Settings, Loader2 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import type { TelegramUser } from "@/types"
 
 export default function HomePage() {
   const [user, setUser] = useState<TelegramUser | null>(null)
-  const [userState, setUserState] = useState<UserState>({
-    tg_user: null,
-    balance: 0,
-    inventory: [],
-    walletConnected: false,
-    firstTime: true,
-    totalEarned: 0,
-    casesOpened: 0,
-  })
+  const [activeTab, setActiveTab] = useState<"cases" | "upgrade" | "profile">("cases")
+  const [balance, setBalance] = useState(0)
+  const [inventory, setInventory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState("cases")
 
   useEffect(() => {
     initializeApp()
@@ -36,216 +24,126 @@ export default function HomePage() {
 
   const initializeApp = async () => {
     try {
-      setLoading(true)
-
-      // Initialize Telegram WebApp
-      const { user: tgUser, startParam } = await telegramWebApp.initialize()
+      const { user: tgUser } = await telegramWebApp.initialize()
 
       if (tgUser) {
         setUser(tgUser)
-        setUserState((prev) => ({ ...prev, tg_user: tgUser }))
-
-        // Try to initialize user with backend
-        try {
-          const response = await apiClient.initializeUser({
-            tg_id: tgUser.id,
-            username: tgUser.username,
-            first_name: tgUser.first_name,
-            last_name: tgUser.last_name,
-            init_data: telegramWebApp.getInitData(),
-            referral_code: startParam,
-          })
-
-          if (response.success && response.data) {
-            setUserState(response.data)
-          } else {
-            // Load from localStorage as fallback
-            loadFromLocalStorage()
-          }
-        } catch (error) {
-          console.error("[v0] Backend initialization failed:", error)
-          loadFromLocalStorage()
-        }
+        await initializeUserInDatabase(tgUser)
       } else {
-        // Demo mode for development
+        // Demo mode
         setUser({
           id: 12345,
           first_name: "Demo",
           last_name: "User",
           username: "demo_user",
         })
-        loadFromLocalStorage()
       }
     } catch (error) {
-      console.error("[v0] App initialization error:", error)
+      console.error("App initialization error:", error)
     } finally {
       setLoading(false)
     }
   }
 
-  const loadFromLocalStorage = () => {
+  const initializeUserInDatabase = async (tgUser: TelegramUser) => {
     try {
-      const saved = localStorage.getItem("ton_user_state")
-      if (saved) {
-        const savedState = JSON.parse(saved)
-        setUserState((prev) => ({ ...prev, ...savedState }))
+      const supabase = createClient()
+
+      const { data: existingUser } = await supabase.from("users").select("*").eq("telegram_id", tgUser.id).single()
+
+      if (!existingUser) {
+        await supabase.from("users").insert({
+          telegram_id: tgUser.id,
+          username: tgUser.username,
+          first_name: tgUser.first_name,
+          last_name: tgUser.last_name,
+          balance: 0,
+          is_online: true,
+        })
+      } else {
+        // Update online status
+        await supabase
+          .from("users")
+          .update({ is_online: true, last_seen: new Date().toISOString() })
+          .eq("telegram_id", tgUser.id)
+
+        setBalance(existingUser.balance || 0)
       }
+
+      // Load user inventory
+      const { data: userInventory } = await supabase
+        .from("user_inventory")
+        .select("*, telegram_gifts(*)")
+        .eq("user_id", tgUser.id)
+
+      setInventory(userInventory || [])
     } catch (error) {
-      console.error("[v0] Failed to load from localStorage:", error)
+      console.error("Database initialization error:", error)
     }
-  }
-
-  const saveToLocalStorage = (newState: UserState) => {
-    try {
-      localStorage.setItem("ton_user_state", JSON.stringify(newState))
-    } catch (error) {
-      console.error("[v0] Failed to save to localStorage:", error)
-    }
-  }
-
-  const handleBalanceUpdate = (newBalance: number) => {
-    const updatedState = { ...userState, balance: newBalance }
-    setUserState(updatedState)
-    saveToLocalStorage(updatedState)
-  }
-
-  const handleInventoryUpdate = (newItem: InventoryItem) => {
-    const updatedState = {
-      ...userState,
-      inventory: [...userState.inventory, newItem],
-      totalEarned: userState.totalEarned + newItem.value,
-      casesOpened: userState.casesOpened + 1,
-    }
-    setUserState(updatedState)
-    saveToLocalStorage(updatedState)
-  }
-
-  const handleFirstTimeUpdate = () => {
-    const updatedState = { ...userState, firstTime: false }
-    setUserState(updatedState)
-    saveToLocalStorage(updatedState)
-  }
-
-  const handleWalletConnect = (address: string) => {
-    const updatedState = {
-      ...userState,
-      walletConnected: true,
-      walletAddress: address,
-      balance: userState.balance + 0.2, // Welcome bonus
-    }
-    setUserState(updatedState)
-    saveToLocalStorage(updatedState)
-  }
-
-  const handleWalletDisconnect = () => {
-    const updatedState = {
-      ...userState,
-      walletConnected: false,
-      walletAddress: undefined,
-    }
-    setUserState(updatedState)
-    saveToLocalStorage(updatedState)
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-            <h2 className="text-xl font-bold mb-2">TON Mystery Cases</h2>
-            <p className="text-muted-foreground">Загрузка приложения...</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <h2 className="text-xl font-bold mb-2">TON Mystery Cases</h2>
-            <p className="text-muted-foreground text-center">Откройте приложение в Telegram для полного функционала</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-white text-xl">Загрузка...</div>
       </div>
     )
   }
 
   return (
     <TonConnectProvider>
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-        <div className="container mx-auto px-4 py-6 max-w-4xl">
-          {/* Header */}
-          <Card className="bg-card/50 backdrop-blur-sm border-border/50 mb-6">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                    TON Mystery Cases
-                  </CardTitle>
-                  <CardDescription>Добро пожаловать, {user.first_name}!</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-yellow-400" />
-                  <span className="text-xl font-bold text-yellow-400">{userState.balance.toFixed(2)} TON</span>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <WalletButton onConnect={handleWalletConnect} onDisconnect={handleWalletDisconnect} className="w-full" />
-            </CardContent>
-          </Card>
-
-          {/* Main Content */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4 bg-card/50 backdrop-blur-sm">
-              <TabsTrigger value="cases" className="flex items-center gap-2">
-                <Package className="w-4 h-4" />
-                Кейсы
-              </TabsTrigger>
-              <TabsTrigger value="profile" className="flex items-center gap-2">
-                <Settings className="w-4 h-4" />
-                Профиль
-              </TabsTrigger>
-              <TabsTrigger value="inventory" className="flex items-center gap-2">
-                <Package className="w-4 h-4" />
-                Инвентарь
-              </TabsTrigger>
-              <TabsTrigger value="referrals" className="flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Рефералы
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="cases" className="space-y-6">
-              <CasesGrid
-                userId={user.id}
-                userBalance={userState.balance}
-                isFirstTime={userState.firstTime}
-                onBalanceUpdate={handleBalanceUpdate}
-                onInventoryUpdate={handleInventoryUpdate}
-                onFirstTimeUpdate={handleFirstTimeUpdate}
-              />
-            </TabsContent>
-
-            <TabsContent value="profile" className="space-y-6">
-              <UserProfile user={user} userState={userState} />
-              <WalletOperations userId={user.id} balance={userState.balance} onBalanceUpdate={handleBalanceUpdate} />
-              <TransactionHistory userId={user.id} />
-            </TabsContent>
-
-            <TabsContent value="inventory" className="space-y-6">
-              <InventoryGrid inventory={userState.inventory} />
-            </TabsContent>
-
-            <TabsContent value="referrals" className="space-y-6">
-              <ReferralSystem userId={user.id} />
-            </TabsContent>
-          </Tabs>
+      <div className="min-h-screen bg-black text-white relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fillRule='evenodd'%3E%3Cg fill='%23ffffff' fillOpacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+            }}
+          />
         </div>
+
+        <div className="relative z-10 flex items-center justify-between p-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-sm font-bold">T</span>
+            </div>
+            <span className="text-white font-medium">{balance.toFixed(2)}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-xs">+</span>
+            </div>
+          </div>
+        </div>
+
+        <OnlineStats />
+
+        <div className="relative z-10 px-4 pb-24">
+          {activeTab === "cases" && (
+            <CasesSection
+              user={user}
+              balance={balance}
+              onBalanceUpdate={setBalance}
+              onInventoryUpdate={(newItem) => setInventory((prev) => [...prev, newItem])}
+            />
+          )}
+
+          {activeTab === "upgrade" && (
+            <UpgradeSection
+              user={user}
+              inventory={inventory}
+              balance={balance}
+              onBalanceUpdate={setBalance}
+              onInventoryUpdate={setInventory}
+            />
+          )}
+
+          {activeTab === "profile" && (
+            <ProfileSection user={user} balance={balance} inventory={inventory} onBalanceUpdate={setBalance} />
+          )}
+        </div>
+
+        <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
     </TonConnectProvider>
   )

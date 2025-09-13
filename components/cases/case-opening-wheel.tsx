@@ -12,9 +12,17 @@ interface CaseOpeningWheelProps {
   isOpening: boolean
   caseName: string
   casePrice: number
+  userBalance: number
 }
 
-export function CaseOpeningWheel({ rewards, onOpen, isOpening, caseName, casePrice }: CaseOpeningWheelProps) {
+export function CaseOpeningWheel({
+  rewards,
+  onOpen,
+  isOpening,
+  caseName,
+  casePrice,
+  userBalance,
+}: CaseOpeningWheelProps) {
   const [isAnimating, setIsAnimating] = useState(false)
   const [wonItem, setWonItem] = useState<TelegramGift | null>(null)
   const [showResult, setShowResult] = useState(false)
@@ -32,6 +40,13 @@ export function CaseOpeningWheel({ rewards, onOpen, isOpening, caseName, casePri
 
   const handleOpen = async () => {
     if (isOpening || isAnimating) return
+
+    if (userBalance < casePrice) {
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.notificationOccurred("error")
+      }
+      return
+    }
 
     setIsAnimating(true)
     setWonItem(null)
@@ -166,6 +181,9 @@ export function CaseOpeningWheel({ rewards, onOpen, isOpening, caseName, casePri
           </div>
           <span className="text-blue-400 text-xl font-semibold">{casePrice} TON</span>
         </div>
+        {userBalance < casePrice && (
+          <p className="text-red-400 text-sm">Недостаточно средств (баланс: {userBalance.toFixed(2)} TON)</p>
+        )}
         {isAnimating && <p className="text-yellow-400 text-sm animate-pulse">Определяем выигрыш...</p>}
       </div>
 
@@ -268,7 +286,7 @@ export function CaseOpeningWheel({ rewards, onOpen, isOpening, caseName, casePri
       {/* Open Button */}
       <Button
         onClick={handleOpen}
-        disabled={isOpening || isAnimating}
+        disabled={isOpening || isAnimating || userBalance < casePrice}
         className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white py-4 text-lg font-semibold rounded-2xl shadow-lg shadow-blue-500/25 transition-all duration-300 hover:shadow-blue-500/40 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
       >
         {isAnimating ? (
@@ -276,10 +294,12 @@ export function CaseOpeningWheel({ rewards, onOpen, isOpening, caseName, casePri
             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             Открывается...
           </div>
+        ) : userBalance < casePrice ? (
+          "Недостаточно средств"
         ) : (
           <>
             <Rocket className="w-5 h-5 mr-2" />
-            Открыть
+            Открыть за {casePrice} TON
           </>
         )}
       </Button>
