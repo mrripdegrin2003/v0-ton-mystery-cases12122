@@ -22,10 +22,7 @@ export class TonConnectService {
 
   private async initializeTonConnect() {
     try {
-      const manifestUrl =
-        process.env.NODE_ENV === "production"
-          ? "https://ton-mystery-cases.vercel.app/tonconnect-manifest.json"
-          : "/tonconnect-manifest.json"
+      const manifestUrl = "https://ton-mini-app-backend.onrender.com/tonconnect-manifest.json"
 
       // Initialize TonConnect with proper manifest URL
       this.tonConnect = new TonConnect({
@@ -74,6 +71,11 @@ export class TonConnectService {
             clearTimeout(timeout)
             unsubscribe()
             console.log("[v0] Wallet connected successfully:", wallet.account.address)
+
+            this.retryOnNetworkError(() => {
+              console.log("[v0] Network connection stable")
+            })
+
             resolve(true)
           }
         })
@@ -231,6 +233,27 @@ export class TonConnectService {
     } catch (error) {
       console.error("[v0] Transaction verification failed:", error)
       return false
+    }
+  }
+
+  private async retryOnNetworkError(callback: () => void, maxRetries = 3): Promise<void> {
+    let attempts = 0
+
+    while (attempts < maxRetries) {
+      try {
+        callback()
+        break
+      } catch (error) {
+        attempts++
+        console.log(`[v0] Network retry attempt ${attempts}/${maxRetries}`)
+
+        if (attempts === maxRetries) {
+          throw error
+        }
+
+        // Экспоненциальная задержка
+        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempts) * 1000))
+      }
     }
   }
 }

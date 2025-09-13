@@ -1,7 +1,7 @@
 {
-  "url": "https://ton-mystery-cases.vercel.app",
+  "url": "https://ton-mini-app-backend.onrender.com",
   "name": "TON Mystery Cases",
-  "iconUrl": "https://ton-mystery-cases.vercel.app/icon-192x192.png",
-  "termsOfUseUrl": "https://ton-mystery-cases.vercel.app/terms",
-  "privacyPolicyUrl": "https://ton-mystery-cases.vercel.app/privacy"
+  "iconUrl": "https://ton.org/icon.png",
+  "termsOfUseUrl": "https://ton-mini-app-backend.onrender.com/terms",
+  "privacyPolicyUrl": "https://ton-mini-app-backend.onrender.com/privacy"
 }

