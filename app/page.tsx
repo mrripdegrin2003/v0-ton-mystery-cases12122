@@ -20,26 +20,45 @@ export default function HomePage() {
 
   useEffect(() => {
     initializeApp()
+
+    if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.disableVerticalSwipes?.()
+      window.Telegram.WebApp.expand()
+
+      // Убираем кнопку закрытия в правом верхнем углу
+      const style = document.createElement("style")
+      style.textContent = `
+        .tgme_widget_login_button { display: none !important; }
+        .tg-spoiler { display: none !important; }
+      `
+      document.head.appendChild(style)
+    }
   }, [])
 
   const initializeApp = async () => {
     try {
+      console.log("[v0] Initializing Telegram WebApp...")
+
       const { user: tgUser } = await telegramWebApp.initialize()
 
-      if (tgUser) {
+      if (tgUser && window.Telegram?.WebApp.initData) {
+        console.log("[v0] Real Telegram user detected:", tgUser)
         setUser(tgUser)
         await initializeUserInDatabase(tgUser)
       } else {
-        // Demo mode
-        setUser({
+        console.log("[v0] Demo mode - no Telegram data")
+        // Demo mode для тестирования
+        const demoUser = {
           id: 12345,
           first_name: "Demo",
           last_name: "User",
           username: "demo_user",
-        })
+        }
+        setUser(demoUser)
+        await initializeUserInDatabase(demoUser)
       }
     } catch (error) {
-      console.error("App initialization error:", error)
+      console.error("[v0] App initialization error:", error)
     } finally {
       setLoading(false)
     }
@@ -52,33 +71,54 @@ export default function HomePage() {
       const { data: existingUser } = await supabase.from("users").select("*").eq("telegram_id", tgUser.id).single()
 
       if (!existingUser) {
-        await supabase.from("users").insert({
-          telegram_id: tgUser.id,
-          username: tgUser.username,
-          first_name: tgUser.first_name,
-          last_name: tgUser.last_name,
-          balance: 0,
-          is_online: true,
-        })
+        console.log("[v0] Creating new user in database")
+        const { data: newUser } = await supabase
+          .from("users")
+          .insert({
+            telegram_id: tgUser.id,
+            username: tgUser.username,
+            first_name: tgUser.first_name,
+            last_name: tgUser.last_name,
+            balance: 0, // Начальный баланс 0
+            is_online: true,
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single()
+
+        setBalance(0)
       } else {
-        // Update online status
+        console.log("[v0] Existing user found, updating online status")
         await supabase
           .from("users")
-          .update({ is_online: true, last_seen: new Date().toISOString() })
+          .update({
+            is_online: true,
+            last_seen: new Date().toISOString(),
+          })
           .eq("telegram_id", tgUser.id)
 
         setBalance(existingUser.balance || 0)
       }
 
-      // Load user inventory
       const { data: userInventory } = await supabase
         .from("user_inventory")
-        .select("*, telegram_gifts(*)")
+        .select(`
+          *,
+          telegram_gifts (
+            id,
+            name,
+            emoji,
+            price_ton,
+            rarity,
+            image_url
+          )
+        `)
         .eq("user_id", tgUser.id)
 
+      console.log("[v0] User inventory loaded:", userInventory)
       setInventory(userInventory || [])
     } catch (error) {
-      console.error("Database initialization error:", error)
+      console.error("[v0] Database initialization error:", error)
     }
   }
 
@@ -93,6 +133,7 @@ export default function HomePage() {
   return (
     <TonConnectProvider>
       <div className="min-h-screen bg-black text-white relative overflow-hidden">
+        {/* Background pattern */}
         <div className="absolute inset-0 opacity-10">
           <div
             className="absolute inset-0"
@@ -102,12 +143,13 @@ export default function HomePage() {
           />
         </div>
 
+        {/* Header with balance */}
         <div className="relative z-10 flex items-center justify-between p-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
               <span className="text-white text-sm font-bold">T</span>
             </div>
-            <span className="text-white font-medium">{balance.toFixed(2)}</span>
+            <span className="text-white font-medium">{balance.toFixed(2)} TON</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
@@ -118,6 +160,7 @@ export default function HomePage() {
 
         <OnlineStats />
 
+        {/* Main content */}
         <div className="relative z-10 px-4 pb-24">
           {activeTab === "cases" && (
             <CasesSection

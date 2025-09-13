@@ -59,7 +59,29 @@ export class TelegramWebApp {
         window.Telegram.WebApp.ready()
         window.Telegram.WebApp.expand()
 
-        const user = window.Telegram.WebApp.initDataUnsafe.user || null
+        const initData = window.Telegram.WebApp.initData
+        console.log("[v0] Telegram initData:", initData)
+
+        let user = null
+        if (initData) {
+          // Парсим initData для получения пользователя
+          try {
+            const urlParams = new URLSearchParams(initData)
+            const userParam = urlParams.get("user")
+            if (userParam) {
+              user = JSON.parse(decodeURIComponent(userParam))
+              console.log("[v0] Parsed user from initData:", user)
+            }
+          } catch (error) {
+            console.error("[v0] Error parsing initData:", error)
+            // Fallback к initDataUnsafe
+            user = window.Telegram.WebApp.initDataUnsafe.user || null
+          }
+        } else {
+          // Fallback к initDataUnsafe для тестирования
+          user = window.Telegram.WebApp.initDataUnsafe.user || null
+        }
+
         const startParam = window.Telegram.WebApp.initDataUnsafe.start_param
 
         this.isInitialized = true
