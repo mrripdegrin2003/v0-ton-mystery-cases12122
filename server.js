@@ -18,7 +18,7 @@ app.use(
 app.use(express.json())
 app.use(express.static("public"))
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY)
 
 const wss = new WebSocket.Server({ port: 8080 })
 const onlineUsers = new Set()
@@ -42,7 +42,9 @@ wss.on("connection", (ws) => {
 
 const adminAuth = (req, res, next) => {
   const adminKey = req.headers["x-admin-key"]
-  if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+  // Используем TELEGRAM_BOT_TOKEN как админ ключ, если ADMIN_SECRET_KEY не задан
+  const secretKey = process.env.ADMIN_SECRET_KEY || process.env.TELEGRAM_BOT_TOKEN
+  if (adminKey !== secretKey) {
     return res.status(401).json({ error: "Unauthorized admin access" })
   }
   next()
@@ -335,6 +337,51 @@ app.get("/api/recent-wins", async (req, res) => {
   }
 })
 
+app.post("/api/ton/verify-balance", async (req, res) => {
+  try {
+    const { walletAddress } = req.body
+
+    // Используем TON API для проверки баланса
+    const response = await fetch(`https://toncenter.com/api/v2/getAddressBalance?address=${walletAddress}`, {
+      headers: {
+        "X-API-Key": process.env.TON_API_KEY,
+      },
+    })
+
+    const data = await response.json()
+    const balance = data.result ? Number.parseFloat(data.result) / 1000000000 : 0 // Convert from nanotons
+
+    res.json({ balance })
+  } catch (error) {
+    console.error("TON balance verification error:", error)
+    res.status(500).json({ error: "Failed to verify TON balance" })
+  }
+})
+
+app.post("/api/telegram/notify", async (req, res) => {
+  try {
+    const { chatId, message } = req.body
+
+    const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: "HTML",
+      }),
+    })
+
+    const result = await response.json()
+    res.json({ success: result.ok })
+  } catch (error) {
+    console.error("Telegram notification error:", error)
+    res.status(500).json({ error: "Failed to send notification" })
+  }
+})
+
 app.get("/admin", adminAuth, (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -352,11 +399,14 @@ app.get("/admin", adminAuth, (req, res) => {
             th { background: #333; }
             .withdraw-btn { background: #ff4444; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; }
             .withdraw-btn:hover { background: #ff6666; }
+            .notify-btn { background: #00d4ff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; margin-left: 5px; }
+            .notify-btn:hover { background: #33ddff; }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>TON Mystery Cases - Admin Panel</h1>
+            <p>Environment: ${process.env.NODE_ENV} | Port: ${process.env.PORT}</p>
             
             <div class="stats" id="stats">
                 <div class="stat-card">
@@ -395,7 +445,7 @@ app.get("/admin", adminAuth, (req, res) => {
         </div>
 
         <script>
-            const adminKey = prompt('Enter admin key:');
+            const adminKey = prompt('Enter admin key (or use bot token):') || '${process.env.TELEGRAM_BOT_TOKEN?.slice(0, 10)}...';
             
             async function fetchStats() {
                 const response = await fetch('/admin/stats', {
@@ -425,6 +475,7 @@ app.get("/admin", adminAuth, (req, res) => {
                         <td>\${new Date(user.created_at).toLocaleDateString()}</td>
                         <td>
                             <button class="withdraw-btn" onclick="withdrawTON('\${user.id}')">Withdraw TON</button>
+                            <button class="notify-btn" onclick="notifyUser('\${user.telegram_id}')">Notify</button>
                         </td>
                     </tr>
                 \`).join('');
@@ -446,6 +497,23 @@ app.get("/admin", adminAuth, (req, res) => {
                 const result = await response.json();
                 alert(result.message || result.error);
                 fetchUsers();
+            }
+
+            async function notifyUser(telegramId) {
+                const message = prompt('Enter message to send:');
+                if (!message) return;
+                
+                const response = await fetch('/api/telegram/notify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ chatId: telegramId, message })
+                });
+                
+                const result = await response.json();
+                alert(result.success ? 'Message sent!' : 'Failed to send message');
             }
 
             // Load data
